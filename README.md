@@ -1,138 +1,154 @@
-# Limitador de Internet — Testes de Contingência NFCe
+# SimpleNetLimiter
 
-Substituto caseiro do NetLimiter, focado em **testar contingência da NFCe**:
-limita banda, injeta latência, descarta pacotes ou derruba a conexão — tudo
-**só com o host/IP da SEFAZ**, sem afetar o resto da internet da máquina.
+**Limitador de internet open-source (Delphi + WinDivert) feito para testar contingência de NFC-e.**
+Uma alternativa gratuita e direta ao NetLimiter, focada em degradar/derrubar **só o link da SEFAZ** (ou a internet inteira, se você quiser) para validar como o seu sistema se comporta quando a SEFAZ fica lenta ou cai.
 
-Motor: **WinDivert 2.2** (mesma base do `clumsy`). É user-mode; o driver
-`.sys` já vem assinado pela Microsoft/autor. Não precisa de driver próprio.
+![Platform](https://img.shields.io/badge/plataforma-Windows-blue)
+![Language](https://img.shields.io/badge/linguagem-Delphi-red)
+![Engine](https://img.shields.io/badge/engine-WinDivert%202.2-green)
+![License](https://img.shields.io/badge/licen%C3%A7a-MIT-lightgrey)
+
+---
+
+## Por que existe
+
+Para emitir NFC-e o sistema conversa com o webservice da SEFAZ. Quando esse webservice fica **lento** ou **indisponível**, o sistema deve entrar em **contingência** (emissão offline, reenvio etc.). Testar isso de verdade exige simular uma rede ruim — e ferramentas como o NetLimiter fazem isso, mas são pagas.
+
+O **SimpleNetLimiter** reproduz o essencial: intercepta os pacotes de rede e **segura, atrasa, descarta ou bloqueia** — direcionado ao host da SEFAZ, sem precisar derrubar a internet inteira da máquina.
+
+---
+
+## Recursos
+
+- 🎯 **Limita só a SEFAZ** — por IP + porta (HTTPS/443). O resto da internet continua normal.
+- 🌐 **Modo "internet geral lenta"** — um checkbox aplica o limite em **todo** o tráfego do PC (bom para validar com um speed test).
+- 🐢 **Banda (KB/s), latência (ms) e perda de pacotes (%)** — ajustáveis ao vivo.
+- ⚡ **Presets**: Normal · Lento · Instável · SEFAZ fora.
+- ✂️ **CORTAR INTERNET** — kill-switch instantâneo (liga/desliga) que derruba todo o tráfego na hora.
+- ⏱️ **Corte agendado** — "cortar em N segundos" (com contagem regressiva) e, opcional, "restaurar após M segundos".
+- ☠️ **Fechar Sistema.exe** — encerra o ERP imediatamente, para testar recuperação após queda abrupta.
+- 📊 **Ping e vazão em tempo real** — latência (TCP) até o alvo e throughput (KB/s · kbps) passando pelo limitador.
+- 🗺️ **Combobox dos 27 estados** — seleciona a UF e já preenche/resolve o host da NFC-e (estados que usam a **SVRS** — PA, RJ, SC, ES, DF... — caem em `nfce.svrs.rs.gov.br`).
+- 🇧🇷 **Produção ou Homologação** — alterna o ambiente da SEFAZ.
+
+---
 
 ## Como funciona
 
-Abre um handle WinDivert na camada NETWORK com um filtro tipo
-`(ip.SrcAddr==X or ip.DstAddr==X) and (tcp.SrcPort==443 or tcp.DstPort==443)`.
-Dois threads:
-
-- **Captura** (`WinDivertRecv`): aplica a política e enfileira ou descarta.
-- **Liberação** (`WinDivertSend`): reinjeta o pacote no instante calculado.
-
-Banda = serialização (cada pacote ocupa o link por `bytes/taxa` segundos).
-Latência = atraso fixo na reinjeção. Perda = descarte aleatório. Bloqueio =
-não reinjeta nada (a SEFAZ "some").
-
-## Atalhos e ícone
-
-O exe já tem ícone próprio embutido (`MAINICON`, gerado por `src\mkico.ps1`).
-Há atalhos prontos no **Menu Iniciar** e na **Área de Trabalho**
-("Limitador SEFAZ NFCe") — basta procurar "Limitador" no Iniciar. Como o exe
-pede elevação pelo manifest, o atalho já dispara o UAC.
-
-Recriar atalhos (ex.: se mover a pasta) e regenerar o ícone:
+O motor é o **[WinDivert](https://reqrypt.org/windivert.html) 2.2** (user-mode, com driver `.sys` assinado — a mesma base do `clumsy`). É aberto um handle na camada NETWORK com um filtro que casa **só o tráfego do alvo**, por exemplo:
 
 ```
-powershell -ExecutionPolicy Bypass -File src\mkico.ps1   # regenera app.ico
-src\make-shortcuts.ps1                                    # recria atalhos
+(ip.SrcAddr == 4.201.99.36 or ip.DstAddr == 4.201.99.36)
+  and (tcp.SrcPort == 443 or tcp.DstPort == 443)
 ```
 
-## Rodar
+Dois threads tratam os pacotes:
 
-> **Tem que ser como Administrador** (o WinDivert instala/abre o driver).
-> O .exe já pede elevação pelo manifest — basta dar duplo clique e aceitar o UAC.
+- **Captura** (`WinDivertRecv`) — aplica a política (perda/banda/latência/bloqueio) e enfileira.
+- **Liberação** (`WinDivertSend`) — reinjeta o pacote no instante calculado.
 
-1. Abra `bin\SefazThrottle.exe` (aceite o UAC).
-2. Escolha o **Estado (UF)** no combo — o host da SEFAZ é preenchido e resolvido
-   automaticamente (PA, RJ, SC… caem na **SVRS** `nfce.svrs.rs.gov.br`). Dá pra
-   trocar **Produção/Homologação** ou digitar um host/IP na mão. Porta = 443.
-3. Ajuste **Banda / Latência / Perda** ou use um **preset**:
-   - **Lento** — 8 KB/s, 600 ms (rede degradada)
-   - **Instável** — 20 KB/s, 300 ms, 20% perda
-   - **SEFAZ fora** — bloqueia tudo (dispara timeout → contingência)
-   - **Normal** — sem limite
-4. **Iniciar limitação**. Dá pra mexer nos valores ao vivo.
-5. Emita a NFCe no Sistema e observe o comportamento de contingência.
-6. **Parar** (ou fechar) — os pacotes em espera são liberados; a SEFAZ volta.
+A **banda** é uma serialização (cada pacote ocupa o link por `bytes ÷ taxa` segundos), a **latência** é um atraso fixo na reinjeção, a **perda** descarta uma fração aleatória e o **bloqueio** simplesmente não reinjeta. O **kill-switch** usa um handle com `FLAG_DROP` (o driver descarta tudo, instantâneo, sem cópia para user-mode).
 
-### Botão CORTAR INTERNET (corte imediato)
+---
 
-O botão vermelho **CORTAR INTERNET (tudo)** derruba na hora **todo** o tráfego
-da máquina (IPv4+IPv6, menos loopback) — não só a SEFAZ. É um kill-switch:
-clicou, parou; clica de novo (**RESTAURAR INTERNET**) e volta na hora. Usa um
-handle WinDivert com `FLAG_DROP`, então é instantâneo e não depende da
-limitação estar rodando.
+## Requisitos
 
-> Diferença: o preset **SEFAZ fora** bloqueia **só** o host da SEFAZ (resto da
-> internet continua). O botão **CORTAR INTERNET** mata **tudo**.
+- **Windows** (x64 ou x86).
+- Rodar **como Administrador** — o WinDivert precisa instalar/abrir o driver. O `.exe` já pede elevação pelo manifest (mostra o escudo do UAC).
+- Para **compilar**: Delphi (testado no **Tokyo / Studio 19.0**, Win32). O `build.bat` usa o `dcc32` + `brcc32` da linha de comando.
 
-### Corte agendado (timer)
+---
 
-Linha **"Cortar em [5] s → Agendar corte"**: clica e a internet cai sozinha
-daqui a N segundos (o botão vira contagem regressiva **Cancelar (corta em 4s…)**).
-Serve pra começar a emitir a NFCe e a conexão cair **no meio** sem você ter
-que voltar e clicar.
+## Compilar
 
-Campo opcional **"e restaurar após [N] s"** (0 = ficar cortado): faz a sequência
-completa automática — espera, corta, espera, restaura. Bom pra teste sem mãos.
-Qualquer clique manual em CORTAR/RESTAURAR cancela o agendamento.
-
-### Botão Fechar Sistema.exe
-
-Mata **na hora** (force-kill, `TerminateProcess`) todos os processos
-`Sistema.exe` em execução — sem confirmação. Útil pra testar recuperação do ERP
-após queda abrupta. Mostra no log quantos processos foram finalizados.
-
-## "Liguei o Lento e o speed test não mudou"
-
-Normal: o limite vale **só pro host do alvo (a SEFAZ)**. Um speed test fala com
-outros servidores, então não é afetado. Pra confirmar que está funcionando,
-olhe o **Status** — o contador *Capturados* só sobe quando há tráfego pra SEFAZ.
-
-Pra ver com um speed test (ou degradar a máquina toda), marque
-**"Limitar TUDO (ignora o host)"** antes de Iniciar: aí banda/latência/perda
-valem pra todo o tráfego (menos loopback). Lembre de desmarcar pra voltar ao
-modo focado na SEFAZ.
-
-## Fluxo de teste de contingência sugerido
-
-| Cenário | Config | O que valida |
-|---|---|---|
-| SEFAZ lenta | preset **Lento** | comportamento sob rede ruim, timeouts parciais |
-| SEFAZ intermitente | preset **Instável** | reenvio / retentativa |
-| SEFAZ fora | preset **SEFAZ fora** | detecção de indisponibilidade → contingência offline |
-
-Dica: o IP da SEFAZ pode ter mais de um endereço e mudar com o tempo —
-clique **Resolver IPs** de novo se trocar de estado/ambiente.
-
-## Recompilar
-
-```
+```bat
 cd src
 build.bat
 ```
 
-Usa `dcc32` do Delphi Tokyo (19.0) + `brcc32` pro manifest. Saída em `bin\`.
-Se der **F2039 (arquivo travado)**, é o antivírus segurando o .exe — feche o
-app / renomeie o .exe antigo e rode de novo.
+Saída em `bin\` (já com `WinDivert.dll` + os `.sys` copiados ao lado). O `build.bat` também gera o `smoke.exe`, um teste de fumaça do binding (valida a convenção de chamada e o layout das structs sem precisar de admin).
+
+Recriar o ícone ou os atalhos:
+
+```bat
+powershell -ExecutionPolicy Bypass -File src\mkico.ps1   :: regenera app.ico
+powershell -ExecutionPolicy Bypass -File src\make-shortcuts.ps1  :: Menu Iniciar + Desktop
+```
+
+---
+
+## Usar
+
+1. Abra `bin\SefazThrottle.exe` (ou o atalho **"Limitador SEFAZ NFCe"**) e **aceite o UAC**.
+2. Escolha o **Estado (UF)** — o host da SEFAZ é preenchido e resolvido automaticamente. Alterne **Produção/Homologação** se precisar.
+3. Use um **preset** (ex.: *Lento*) ou ajuste banda/latência/perda; clique **Iniciar limitação**.
+4. Emita a NFC-e no seu sistema e observe a contingência. Acompanhe **Ping** e **Vazão** no painel de status.
+5. **Parar** (ou fechar) libera os pacotes em espera e a SEFAZ volta ao normal.
+
+```
+┌────────────────────────────────────────────────────────────┐
+│ Alvo (SEFAZ)                                                 │
+│  Estado: [PA - Para (SVRS) ▾]   Ambiente: [Produção ▾]       │
+│  Host: [nfce.svrs.rs.gov.br      ] Porta:[443] [Resolver IPs]│
+│  IPs: 4.201.99.36                                            │
+├────────────────────────────────────────────────────────────┤
+│ Limites                                                      │
+│  Banda(KB/s):[8]  Latência(ms):[600]  Perda(%):[0]           │
+│  [Normal][Lento][Instável]   ☐ Bloquear só a SEFAZ           │
+├────────────────────────────────────────────────────────────┤
+│ [Iniciar limitação] [Parar]   LIMITANDO  ☐ Internet GERAL    │
+│ [ CORTAR INTERNET (tudo) ]  Internet:ativa  [Fechar Sistema] │
+│  Cortar em [5] s [Agendar corte]  e restaurar após [0] s     │
+├────────────────────────────────────────────────────────────┤
+│ Status (tempo real)                                          │
+│  Ping: 240 ms      |      Vazão: 8,1 KB/s (65 kbps)          │
+└────────────────────────────────────────────────────────────┘
+```
+
+### "Liguei o Lento e o speed test não mudou"
+
+Normal: por padrão o limite vale **só para o host da SEFAZ**. Um speed test fala com outros servidores, então não é afetado. Para ver com um speed test (ou degradar a máquina toda), marque **"Internet GERAL do PC lenta"** antes de iniciar.
+
+### Cenários de teste de contingência
+
+| Cenário | Como | O que valida |
+|---|---|---|
+| SEFAZ lenta | preset **Lento** | comportamento sob rede degradada, timeouts parciais |
+| SEFAZ intermitente | preset **Instável** | reenvio / retentativa |
+| SEFAZ fora | preset **SEFAZ fora** ou **CORTAR INTERNET** | detecção de indisponibilidade → contingência offline |
+| Queda abrupta | **Corte agendado** + **Fechar Sistema.exe** | recuperação da NFC-e pendente ao reabrir |
+
+---
 
 ## Estrutura
 
 ```
-src\
+src/
   WinDivert.pas       binding cdecl da WinDivert 2.2 (struct de 80 bytes)
-  ThrottleEngine.pas  motor: threads de captura/liberação, banda/latência/perda/bloqueio
+  ThrottleEngine.pas  motor (threads de captura/liberação) + kill-switch
+  uPing.pas           TCP-ping em thread (latência ao alvo)
   uHostResolve.pas    host -> IPs (Winsock)
-  uMain.pas           UI (montada em código, sem DFM)
+  uProcKill.pas       fechar processo por nome (Sistema.exe)
+  uMain.pas           interface (montada em código, sem DFM)
   SefazThrottle.dpr   programa
   smoke.dpr           teste do binding (não precisa de admin)
-  app.manifest/app.rc manifest de elevação (requireAdministrator)
-bin\
-  SefazThrottle.exe   + WinDivert.dll + WinDivert32.sys + WinDivert64.sys
-lib\                  fontes/headers/licença originais do WinDivert
+  app.manifest/.rc    manifest de elevação + ícone (MAINICON)
+  build.bat           compila tudo e copia o runtime do WinDivert
+  mkico.ps1           gera o ícone (app.ico)
+  make-shortcuts.ps1  cria atalhos no Menu Iniciar e Desktop
+lib/                  WinDivert.dll + WinDivert32/64.sys + windivert.h + LICENSE
+bin/                  saída do build (não versionada)
 ```
 
-## Limitações / notas
+---
 
-- IPv4 + TCP por porta (cobre HTTPS da SEFAZ). Filtro pode ser ampliado.
-- Limita **por IP**, não por processo. Se outro app falar com o mesmo IP da
-  SEFAZ, também é afetado (na prática, só o Sistema fala com a SEFAZ).
-- WinDivert é LGPLv3 (ok para ferramenta interna).
-- Os 3 arquivos do WinDivert (`.dll` + 2 `.sys`) precisam ficar **junto** do .exe.
+## Aviso legal
+
+Ferramenta de **teste**, para uso na **sua própria máquina/rede e nos seus próprios sistemas** (idealmente em ambiente de homologação). Interceptar/derrubar tráfego de terceiros sem autorização é indevido. Use com responsabilidade.
+
+---
+
+## Licença
+
+- Código deste repositório: **MIT** (veja [LICENSE](LICENSE)).
+- **WinDivert** (binários em `lib/`): **LGPLv3 / GPLv2** por Basil00 (veja [lib/LICENSE](lib/LICENSE)). A redistribuição é permitida sob esses termos.
