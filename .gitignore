@@ -1,0 +1,22 @@
+# --- saida de build ---
+bin/
+dcu/
+*.dcu
+*.res
+*.map
+*.drc
+
+# --- lixo do Delphi ---
+__history/
+__recovery/
+*.identcache
+*.local
+*.~*
+*.dproj.local
+
+# --- arquivos baixados / temporarios ---
+windivert.zip
+*.old.*.exe
+
+# Observacao: os binarios do WinDivert ficam versionados em lib/ (LGPLv3,
+# licenca em lib/LICENSE) e o build.bat copia pra bin/ na compilacao.
